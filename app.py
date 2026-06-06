@@ -1,4 +1,5 @@
 import os
+import streamlit as st
 from dotenv import load_dotenv
 from langchain_mistralai import ChatMistralAI
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
@@ -6,58 +7,87 @@ from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 # 1. Load Environment Variables
 load_dotenv()
 
-def main():
-    print("🎭 Personality-Shifting AI (Terminal Version)")
-    print("-" * 45)
-    print("Select a mode:")
-    print("1. Funny AI 😂")
-    print("2. Angry AI 🔥")
-    print("3. Sad AI 😭")
+# --- PAGE CONFIGURATION ---
+st.set_page_config(page_title="Multi-Mode AI", page_icon="🎭", layout="centered")
+
+# Custom CSS to make it look a bit more polished
+st.markdown("""
+    <style>
+    .stChatMessage { border-radius: 15px; margin-bottom: 10px; }
+    .stButton>button { width: 100%; border-radius: 20px; }
+    </style>
+    """, unsafe_allow_html=True)
+
+st.title("🎭 Personality-Shifting AI")
+st.caption("Choose a mood in the sidebar and start chatting with Mistral AI.")
+
+# --- SIDEBAR: MODE SELECTION ---
+st.sidebar.header("🤖 AI Settings")
+
+mode_choice = st.sidebar.selectbox(
+    "Choose your AI mode:",
+    ("Funny AI", "Angry AI", "Sad AI")
+)
+
+# Map choices to your exact system prompts
+mode_prompts = {
+    "Angry AI": "You are an angry AI agent. You respond aggresively and impatiently. 🔥",
+    "Funny AI": "You are a funny AI chatbot you respond with humor and jokes. 😂",
+    "Sad AI": "You are a sad AI chatbot you respond with deep melancholy and sighs. 😭"
+}
+
+current_mode_prompt = mode_prompts[mode_choice]
+
+# --- SESSION STATE INITIALIZATION ---
+if "model" not in st.session_state:
+    st.session_state.model = ChatMistralAI(model="mistral-small-2506", temperature=0.9)
+
+# If the user changes the mode, we reset the chat to update the SystemMessage
+if "current_mode" not in st.session_state or st.session_state.current_mode != mode_choice:
+    st.session_state.current_mode = mode_choice
+    st.session_state.messages = [SystemMessage(content=current_mode_prompt)]
+
+# Sidebar button to manual reset
+if st.sidebar.button("Reset Conversation"):
+    st.session_state.messages = [SystemMessage(content=current_mode_prompt)]
+    st.rerun()
+
+# --- DISPLAY CHAT HISTORY ---
+icons = {"Angry AI": "😡", "Funny AI": "🤡", "Sad AI": "🥺"}
+
+for msg in st.session_state.messages:
+    if isinstance(msg, HumanMessage):
+        with st.chat_message("user", avatar="👤"):
+            st.markdown(msg.content)
+    elif isinstance(msg, AIMessage):
+        with st.chat_message("assistant", avatar=icons[st.session_state.current_mode]):
+            st.markdown(msg.content)
+
+# --- CHAT INPUT & LOGIC ---
+if prompt := st.chat_input("Say something..."):
     
-    # Mode selection
-    choice = input("\nEnter choice (1/2/3): ").strip()
+    # 1. Display User Message
+    with st.chat_message("user", avatar="👤"):
+        st.markdown(prompt)
     
-    mode_prompts = {
-        "1": ("Funny AI", "You are a funny AI chatbot you respond with humor and jokes. 😂"),
-        "2": ("Angry AI", "You are an angry AI agent. You respond aggresively and impatiently. 🔥"),
-        "3": ("Sad AI", "You are a sad AI chatbot you respond with deep melancholy and sighs. 😭")
-    }
+    # 2. Add to history
+    st.session_state.messages.append(HumanMessage(content=prompt))
     
-    # Default to Funny AI if invalid choice
-    selected_mode, current_mode_prompt = mode_prompts.get(choice, mode_prompts["1"])
-    print(f"\n🚀 System initialized as: **{selected_mode}**")
-    print("Type 'exit' or 'quit' to stop the conversation.\n" + "="*45 + "\n")
+    # 3. Generate AI Response
+    with st.chat_message("assistant", avatar=icons[st.session_state.current_mode]):
+        with st.spinner("Thinking..."):
+            try:
+                response = st.session_state.model.invoke(st.session_state.messages)
+                
+                # Show Response
+                st.markdown(response.content)
+                
+                # 4. Add to history
+                st.session_state.messages.append(AIMessage(content=response.content))
+            except Exception as e:
+                st.error(f"Error: {e}")
 
-    # Initialize model and message history with SystemMessage
-    model = ChatMistralAI(model="mistral-small-2506", temperature=0.9)
-    messages = [SystemMessage(content=current_mode_prompt)]
-
-    # Conversation loop
-    while True:
-        try:
-            user_input = input("👤 You: ").strip()
-            if not user_input:
-                continue
-            if user_input.lower() in ['exit', 'quit']:
-                print("\nGoodbye!")
-                break
-
-            # 1. Append user message to history
-            messages.append(HumanMessage(content=user_input))
-
-            # 2. Invoke Mistral AI
-            print("🤖 AI is thinking...")
-            response = model.invoke(messages)
-
-            # 3. Print response and append to history
-            print(f"🤖 AI: {response.content}\n")
-            messages.append(AIMessage(content=response.content))
-
-        except KeyboardInterrupt:
-            print("\nGoodbye!")
-            break
-        except Exception as e:
-            print(f"\n❌ Error: {e}\n")
-
-if __name__ == "__main__":
-    main()
+# Debugging view in sidebar
+with st.sidebar.expander("System Internal State"):
+    st.write(f"**Current Persona:** {st.session_state.current_mode}")
+    st.write("**Message Count:**", len(st.session_state.messages))
